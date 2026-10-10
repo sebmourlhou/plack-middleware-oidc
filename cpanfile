@@ -8,7 +8,10 @@ requires 'OIDC::Client', '1.08';
 requires 'Try::Tiny';
 requires 'URI';
 
+test_requires 'FindBin';
+test_requires 'JSON::PP';
 test_requires 'HTTP::Request::Common';
+test_requires 'Plack::Middleware::Session';
 test_requires 'Test::MockModule', '0.177.0';
 test_requires 'Test::More';
 test_requires 'URI::QueryParam';

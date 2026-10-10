@@ -1,5 +1,6 @@
 package Plack::Middleware::OIDC::Redirect;
-use 5.014;
+use 5.020;
+use utf8;
 use strict;
 use warnings;
 

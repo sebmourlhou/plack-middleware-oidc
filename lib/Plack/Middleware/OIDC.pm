@@ -141,7 +141,7 @@ application's point of view, calling these methods still simply ends the
 request with a redirect, as it does with the other framework plugins.
 
 Note that this means these two methods must not be called from inside a
-C<local> C<eval> / C<try> block that would swallow the exception without
+C<eval> / C<try> block that would swallow the exception without
 re-throwing it.
 
 =head2 Session
@@ -159,7 +159,29 @@ key) must be enabled B<before> C<Plack::Middleware::OIDC> :
 
 The C<stash> storage mode is also supported ; the stash is a plain hashref
 scoped to the current request (stored in C<< $env->{'oidc.stash'} >>), lost
-once the request ends.
+once the request ends. This C<stash> storage mode should only be used for
+an API which must validate the token in the C<Authorization> header
+for each request (Resource Server).
+
+=head2 Reverse proxy
+
+When running behind a reverse proxy, L<Plack::Middleware::OIDC> expects
+the PSGI environment to describe the public request URL.
+
+The reverse proxy must therefore configure C<psgi.url_scheme>,
+C<SERVER_NAME> and C<SERVER_PORT> appropriately before the OIDC middleware
+is invoked.
+
+L<Plack::Middleware::OIDC> does not interpret X-Forwarded-* headers itself.
+
+Example (the order is important) :
+
+  builder {
+    enable 'ReverseProxy';
+    enable 'Session';
+    enable 'OIDC', config => $oidc_config;
+    $app;
+  };
 
 =head1 CONFIGURATION
 
@@ -192,8 +214,9 @@ sub prepare_app {
   my $self = shift;
 
   my $config = $self->config || {};
+
   $self->{_oidc_config} = $config;
-  $self->{_oidc_log}    = $self->log || Plack::Middleware::OIDC::Logger->new;
+  $self->{_oidc_log}    = $self->log || Plack::Middleware::OIDC::Logger->new();
 
   my (%client_by_provider, %path_map);
 
@@ -212,14 +235,17 @@ sub prepare_app {
         or next;
 
       if (my $existing_route = $path_map{$path}) {
-        next if $existing_route->{provider} eq $provider_name
-             && $existing_route->{action}   eq $action_type;
         croak("OIDC: path '$path' is already used by provider '$existing_route->{provider}' "
-            . "($existing_route->{action}), cannot also use it for provider '$provider_name' ($action_type)");
+            . "($existing_route->{action}), cannot also use it for provider '$provider_name' "
+            . "($action_type)");
       }
 
       $path_map{$path} = { provider => $provider_name, action => $action_type };
     }
+  }
+
+  if ($config->{default_provider} && !$client_by_provider{$config->{default_provider}}) {
+    croak("OIDC: default_provider '$config->{default_provider}' is not configured");
   }
 
   $self->{_oidc_client_by_provider} = \%client_by_provider;
@@ -241,6 +267,10 @@ exception raised by the application into a real C<302> response.
 
 sub call {
   my ($self, $env) = @_;
+
+  if ($self->{_oidc_log}->isa('Plack::Middleware::OIDC::Logger')) {
+    $self->{_oidc_log}->set_env($env);
+  }
 
   if (my $route = $self->{_oidc_path_map}{ $env->{PATH_INFO} }) {
     return $route->{action} eq 'login' ? $self->_login_callback($env, $route->{provider})
@@ -339,7 +369,8 @@ sub _extract_request_params {
   my %params;
   foreach my $key (@unique_keys) {
     my @values = $parameters->get_all($key);
-    $params{$key} = @values > 1 ? \@values : $values[0];
+    $params{$key} = @values > 1 ? \@values
+                                : $values[0];
   }
 
   return \%params;
@@ -371,12 +402,15 @@ sub _login_callback {
   my $state   = $req->parameters->get('state');
   my $session = $env->{'psgix.session'};
 
-  my $auth_data = ($state && $session) ? $session->{oidc_auth}{$state} : undef;
+  # oidc_auth is routing/application state. # OIDC::Client::Plugin::get_token() remains responsible
+  # for validating the OIDC state/nonce/PKCE flow.
+  my $auth_data = ($state && $session) ? $session->{oidc_auth}{$state}
+                                       : undef;
 
-  # provider stored alongside the auth data takes precedence over the
-  # provider deduced from the matched path, in case several providers
-  # happen to share the same callback path
-  my $plugin = $self->_build_plugin_instance($env, ($auth_data && $auth_data->{provider}) || $provider_name);
+  my $plugin = $self->_build_plugin_instance(
+    $env,
+    ($auth_data && $auth_data->{provider}) || $provider_name,
+  );
 
   return try {
     $plugin->get_token();
@@ -397,9 +431,13 @@ sub _logout_callback {
   my $state   = $req->parameters->get('state');
   my $session = $env->{'psgix.session'};
 
-  my $logout_data = ($state && $session) ? delete $session->{oidc_logout}{$state} : undef;
+  my $logout_data = ($state && $session) ? delete $session->{oidc_logout}{$state}
+                                         : undef;
 
-  my $plugin = $self->_build_plugin_instance($env, ($logout_data && $logout_data->{provider}) || $provider_name);
+  my $plugin = $self->_build_plugin_instance(
+    $env,
+    ($logout_data && $logout_data->{provider}) || $provider_name,
+  );
   $plugin->delete_stored_data();
 
   return $self->_redirect_response($env, $logout_data && $logout_data->{target_url});
@@ -433,5 +471,6 @@ sub _handle_authentication_error {
 
   return [302, ['Location' => $e_url], ['']];
 }
+
 
 1;

@@ -1,5 +1,6 @@
 package Plack::Middleware::OIDC::Logger;
-use 5.014;
+use 5.020;
+use utf8;
 use strict;
 use warnings;
 
@@ -36,6 +37,14 @@ sub new {
   return bless { env => $args{env} }, $class;
 }
 
+sub set_env {
+  my ($self, $env) = @_;
+
+  $self->{env} = $env;
+
+  return $self;
+}
+
 sub _log {
   my ($self, $level, $message) = @_;
 
@@ -49,10 +58,10 @@ sub _log {
   return;
 }
 
-sub debug   { my $self = shift; $self->_log('debug',   @_); return; }
-sub info    { my $self = shift; $self->_log('info',    @_); return; }
-sub warning { my $self = shift; $self->_log('warn',    @_); return; }
-sub warn    { my $self = shift; $self->_log('warn',    @_); return; }
-sub error   { my $self = shift; $self->_log('error',   @_); return; }
+sub debug   { my $self = shift; $self->_log('debug', @_); return; }
+sub info    { my $self = shift; $self->_log('info',  @_); return; }
+sub warning { my $self = shift; $self->_log('warn',  @_); return; }
+sub warn    { my $self = shift; $self->_log('warn',  @_); return; }
+sub error   { my $self = shift; $self->_log('error', @_); return; }
 
 1;

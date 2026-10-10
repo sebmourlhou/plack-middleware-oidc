@@ -8,7 +8,7 @@ It essentially uses the [OIDC-Client](https://metacpan.org/dist/OIDC-Client) dis
 
 ## Features
 
-- creates the endpoint used by the provider to redirect the user back to your application
+- automatically creates the endpoint used by the provider to redirect the user back to your application
 - retrieves the provider metadata and JWK keys when the application is launched
 - redirects the browser to the authorize URL to initiate an authorization code flow
 - gets the token(s) from the provider
@@ -19,6 +19,7 @@ It essentially uses the [OIDC-Client](https://metacpan.org/dist/OIDC-Client) dis
 - gets the user information from the *userinfo* endpoint
 - exchanges the access token
 - redirects the browser to the logout URL
+- PKCE support
 
 ## Documentation
 
@@ -28,6 +29,10 @@ It essentially uses the [OIDC-Client](https://metacpan.org/dist/OIDC-Client) dis
 ## Security Recommendation
 
 When using Plack::Middleware::OIDC, it is highly recommended to configure the framework to store session data, including sensitive tokens such as access and refresh tokens, on the backend rather than in client-side cookies. Although cookies can be signed and encrypted, storing tokens in the client exposes them to potential security threats.
+
+## Error handling and redirects
+
+This middleware uses an explicit exception type to signal an OIDC redirect. Only this dedicated redirect exception is translated into an HTTP redirect response. Unexpected exceptions are not interpreted as authentication requests and are rethrown.
 
 ## Limitations
 

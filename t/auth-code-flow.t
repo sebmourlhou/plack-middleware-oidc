@@ -12,6 +12,10 @@ use URI::QueryParam;
 use OIDC::Client::TokenResponse;
 use Plack::Middleware::OIDC;
 
+use FindBin;
+use lib "$FindBin::Bin/lib";
+use TestOIDC::Logger;
+
 # ----------------------------------------------------------------------
 # Mock the network calls made by OIDC::Client (token endpoint, JWT decoding)
 # ----------------------------------------------------------------------
@@ -79,6 +83,12 @@ my $inner_app = sub {
 
 my $app = builder {
   enable 'Session';
+
+  enable sub {
+    my $app = shift;
+    TestOIDC::Logger->middleware($app);
+  };
+
   enable 'OIDC', config => $oidc_config;
   $inner_app;
 };
@@ -90,56 +100,64 @@ my $app = builder {
 test_psgi $app, sub {
   my $cb = shift;
 
-  # 1) Unauthenticated access to a protected route => redirected to the provider
-  my $res1 = $cb->(GET '/protected');
-  is($res1->code, 302, 'unauthenticated access redirects');
+  my ($state, $session_cookie, $cookie_value, $cookie_value2, $cookie_value3, $cookie_value4);
 
-  my $authorize_url = URI->new($res1->header('Location'));
-  is($authorize_url->host, 'provider.example.com', 'redirects to the provider host');
-  is($authorize_url->path, '/authorize', 'redirects to the authorize endpoint');
+  subtest '1) Unauthenticated access to a protected route -> Redirected to the provider' => sub {
+    my $res1 = $cb->(GET '/protected');
+    is($res1->code, 302, 'unauthenticated access redirects');
 
-  my $state = $authorize_url->query_param('state');
-  ok($state, 'state parameter is present in the authorize URL');
+    my $authorize_url = URI->new($res1->header('Location'));
+    is($authorize_url->host, 'provider.example.com', 'redirects to the provider host');
+    is($authorize_url->path, '/authorize', 'redirects to the authorize endpoint');
 
-  my $session_cookie = $res1->header('Set-Cookie');
-  ok($session_cookie, 'a session cookie has been set');
-  my ($cookie_value) = $session_cookie =~ /^([^;]+)/;
+    $state = $authorize_url->query_param('state');
+    ok($state, 'state parameter is present in the authorize URL');
 
-  # 2) Simulate the provider redirecting the browser back to our callback
-  my $res2 = $cb->(
-    GET "/oidc/login/callback?code=some-code&state=$state",
-    Cookie => $cookie_value,
-  );
-  is($res2->code, 302, 'login callback redirects back to the target url');
-  is(URI->new($res2->header('Location'))->path, '/protected', 'redirects to the originally requested url');
+    $session_cookie = $res1->header('Set-Cookie');
+    ok($session_cookie, 'a session cookie has been set');
 
-  my ($cookie_value2) = ($res2->header('Set-Cookie') || $session_cookie) =~ /^([^;]+)/;
+    ($cookie_value) = $session_cookie =~ /^([^;]+)/;
+  };
 
-  # 3) Now access the protected route again, with the (now authenticated) session
-  my $res3 = $cb->(GET '/protected', Cookie => $cookie_value2);
-  is($res3->code, 200, 'authenticated access succeeds');
-  is($res3->content, 'Hello jdoe', 'identity has been correctly stored and retrieved');
+  subtest '2) Simulate the provider redirecting the browser back to our callback' => sub {
+    my $res2 = $cb->(
+      GET "/oidc/login/callback?code=some-code&state=$state",
+      Cookie => $cookie_value,
+    );
+    is($res2->code, 302, 'login callback redirects back to the target url');
+    is(URI->new($res2->header('Location'))->path, '/protected', 'redirects to the originally requested url');
 
-  # 4) Logout flow
-  my $res4 = $cb->(GET '/do-logout', Cookie => $cookie_value2);
-  is($res4->code, 302, 'logout redirects');
-  my $logout_url = URI->new($res4->header('Location'));
-  is($logout_url->host, 'provider.example.com', 'redirects to the provider host for logout');
-  is($logout_url->path, '/logout', 'redirects to the end_session endpoint');
+    ($cookie_value2) = ($res2->header('Set-Cookie') || $session_cookie) =~ /^([^;]+)/;
+  };
 
-  my $logout_state = $logout_url->query_param('state');
-  my ($cookie_value3) = ($res4->header('Set-Cookie') || $cookie_value2) =~ /^([^;]+)/;
+  subtest '3) Access the protected route again, with the (now authenticated) session' => sub {
+    my $res3 = $cb->(GET '/protected', Cookie => $cookie_value2);
+    is($res3->code, 200, 'authenticated access succeeds');
+    is($res3->content, 'Hello jdoe', 'identity has been correctly stored and retrieved');
+  };
 
-  my $res5 = $cb->(
-    GET "/oidc/logout/callback?state=$logout_state",
-    Cookie => $cookie_value3,
-  );
-  is($res5->code, 302, 'logout callback redirects');
+  subtest '4) Logout flow' => sub {
+    my $res4 = $cb->(GET '/do-logout', Cookie => $cookie_value2);
+    is($res4->code, 302, 'logout redirects');
+    my $logout_url = URI->new($res4->header('Location'));
+    is($logout_url->host, 'provider.example.com', 'redirects to the provider host for logout');
+    is($logout_url->path, '/logout', 'redirects to the end_session endpoint');
 
-  # 5) The identity should now be gone
-  my ($cookie_value4) = ($res5->header('Set-Cookie') || $cookie_value3) =~ /^([^;]+)/;
-  my $res6 = $cb->(GET '/protected', Cookie => $cookie_value4);
-  is($res6->code, 302, 'access is unauthenticated again after logout');
+    my $logout_state = $logout_url->query_param('state');
+    ($cookie_value3) = ($res4->header('Set-Cookie') || $cookie_value2) =~ /^([^;]+)/;
+
+    my $res5 = $cb->(
+      GET "/oidc/logout/callback?state=$logout_state",
+      Cookie => $cookie_value3,
+    );
+    is($res5->code, 302, 'logout callback redirects');
+    ($cookie_value4) = ($res5->header('Set-Cookie') || $cookie_value3) =~ /^([^;]+)/;
+  };
+
+  subtest '5) The identity is gone' => sub {
+    my $res6 = $cb->(GET '/protected', Cookie => $cookie_value4);
+    is($res6->code, 302, 'access is unauthenticated again after logout');
+  };
 };
 
 done_testing();
