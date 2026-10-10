@@ -37,6 +37,17 @@ sub new {
   return bless { env => $args{env} }, $class;
 }
 
+
+=head2 set_env($env)
+
+Sets the PSGI environment attribute.
+
+The environment is used to access the C<psgix.logger> callback, when
+available, so that log messages can be forwarded to the logging
+mechanism provided by the PSGI application server.
+
+=cut
+
 sub set_env {
   my ($self, $env) = @_;
 
@@ -44,6 +55,7 @@ sub set_env {
 
   return $self;
 }
+
 
 sub _log {
   my ($self, $level, $message) = @_;
@@ -57,6 +69,29 @@ sub _log {
   print STDERR "[$level] $message\n";
   return;
 }
+
+
+=head2 debug($message)
+
+Logs a message at the C<debug> level.
+
+=head2 info($message)
+
+Logs a message at the C<info> level.
+
+=head2 warning($message)
+
+Logs a message at the C<warn> level.
+
+=head2 warn($message)
+
+Logs a message at the C<warn> level.
+
+=head2 error($message)
+
+Logs a message at the C<error> level.
+
+=cut
 
 sub debug   { my $self = shift; $self->_log('debug', @_); return; }
 sub info    { my $self = shift; $self->_log('info',  @_); return; }
