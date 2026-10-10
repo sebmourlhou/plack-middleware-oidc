@@ -323,7 +323,7 @@ sub _resolve_default_provider_name {
   my @provider_names = keys %{ $self->{_oidc_client_by_provider} };
 
   return $provider_names[0] if @provider_names == 1;
-  return undef;
+  return;
 }
 
 
