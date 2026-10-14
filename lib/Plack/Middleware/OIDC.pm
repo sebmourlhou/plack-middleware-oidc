@@ -24,7 +24,7 @@ use Plack::Util::Accessor qw(config log);
 
 =head1 NAME
 
-Plack::Middleware::OIDC - OIDC protocol integration for PSGI/Plack applications
+Plack::Middleware::OIDC - OpenID Connect integration for PSGI/Plack applications
 
 =head1 SYNOPSIS
 
@@ -35,12 +35,12 @@ Plack::Middleware::OIDC - OIDC protocol integration for PSGI/Plack applications
     authentication_error_path => '/error',
     provider => {
       my_provider => {
-        id                    => 'my-app-id',
-        secret                => 'xxxxxxxxx',
-        well_known_url        => 'https://yourprovider.com/.well-known/openid-configuration',
-        signin_redirect_path  => '/oidc/login/callback',
-        logout_redirect_path  => '/oidc/logout/callback',
-        scope                 => 'openid profile roles email',
+        id                   => 'my-app-id',
+        secret               => 'xxxxxxxxx',
+        well_known_url       => 'https://yourprovider.com/.well-known/openid-configuration',
+        signin_redirect_path => '/oidc/login/callback',
+        logout_redirect_path => '/oidc/logout/callback',
+        scope                => 'openid profile roles email',
       },
     },
   };
@@ -56,10 +56,10 @@ Plack::Middleware::OIDC - OIDC protocol integration for PSGI/Plack applications
     my $env = shift;
 
     if (my $identity = $env->{oidc}->get_valid_identity()) {
-      # authenticated, $identity->subject, $identity->claims, ...
+      # authenticated : $identity->subject, $identity->claims, ...
     }
     else {
-      # this dies with an internal exception that Plack::Middleware::OIDC
+      # throws an internal exception which Plack::Middleware::OIDC
       # catches and turns into a real 302 response
       $env->{oidc}->redirect_to_authorize();
     }
@@ -74,33 +74,48 @@ OAuth 2.0 Resource Server by validating Access Tokens issued by an
 external Authorization Server or OpenID Provider. It does not implement
 an OpenID Provider.
 
-It essentially uses the L<OIDC::Client|https://metacpan.org/dist/OIDC-Client>
-distribution, and is the PSGI/Plack counterpart of L<Mojolicious::Plugin::OIDC>,
-L<Catalyst::Plugin::OIDC> and L<Dancer2::Plugin::OIDC>. This documentation
-mainly focuses on what is specific to Plack ; please also read
-L<OIDC::Client::Plugin> and L<OIDC::Client::Config> for the complete
-list of available methods and configuration entries.
+It is built on the L<OIDC::Client> distribution and is the PSGI/Plack
+counterpart of L<Mojolicious::Plugin::OIDC>, L<Catalyst::Plugin::OIDC>
+and L<Dancer2::Plugin::OIDC>. It is meant for applications that do not
+use one of these frameworks (hand-written PSGI applications, ...). If you
+use one of the three frameworks above, prefer its dedicated plugin, which is
+better integrated.
+
+This documentation focuses on what is specific to Plack. The methods
+available on the objects exposed to your application are documented in
+L<OIDC::Client::Plugin>, and the configuration entries in
+L<OIDC::Client::Config>.
 
 =head1 HOW IT WORKS
 
 =head2 Configuration
 
-Unlike the other framework plugins, Plack has no built-in configuration
-mechanism, so the configuration hashref (same structure as for the other
-plugins, see L<OIDC::Client::Config>) must be passed explicitly to
-C<enable>, under the C<config> key.
+Plack has no built-in configuration mechanism, so the configuration is
+not looked up in a file: the hashref (same structure as for the other
+plugins, see L<OIDC::Client::Config>) is passed explicitly to C<enable>,
+under the C<config> key. How you load it (L<Config::Any>, YAML, JSON,
+environment variables, a plain hash in F<app.psgi>...) is up to you.
 
 =head2 Routing
 
 At startup, for each configured provider, the middleware reads the
 C<signin_redirect_path> and C<logout_redirect_path> configuration entries
-and intercepts requests matching these paths directly, without delegating
-them to the wrapped application. There is no need to declare these routes
-in your application.
+and handles the matching requests itself, without passing them on to
+your application. There is nothing to declare in your application for
+these two callback routes.
 
-=head2 Access to OIDC::Client::Plugin instances
+These paths are compared with C<PATH_INFO>, so they are relative to the
+point where the application is mounted (for example under
+L<Plack::App::URLMap>). The C<redirect_uri> sent to the provider is built
+from the base URL of the request, which includes C<SCRIPT_NAME>, so both
+stay consistent.
 
-For every other request, this middleware creates one L<OIDC::Client::Plugin>
+Two providers cannot use the same callback path: this is detected at
+startup and raises an exception.
+
+=head2 Access to the OIDC::Client::Plugin instances
+
+For every other request, the middleware creates one L<OIDC::Client::Plugin>
 instance per configured provider and exposes them to the downstream
 application through C<$env> :
 
@@ -108,48 +123,61 @@ application through C<$env> :
 
 =item C<< $env->{oidc} >>
 
-Instance for the default provider (see L</"default_provider"> below).
+Instance for the default provider (see L</"Default provider">).
 
 =item C<< $env->{"oidc.$provider_name"} >>
 
-Instance dedicated to the C<$provider_name> provider. When
-C<$provider_name> is the default provider, this is the very same instance
-as C<< $env->{oidc} >>.
+Instance dedicated to the provider named C<$provider_name>. When
+C<$provider_name> is the default provider, it is the very same object as
+C<< $env->{oidc} >>.
 
 =back
 
-This is the PSGI idiomatic equivalent of the C<< $c->oidc >> /
-C<< $c->oidc('my_provider') >> helper found in the other plugins.
+This is the equivalent of the C<< $c->oidc >> and
+C<< $c->oidc('my_provider') >> helpers of the other plugins, and the
+key was deliberately named C<oidc> to stay aligned with them. The
+instances are created on every request (no I/O is involved, they only
+wrap the request, the session and the already built L<OIDC::Client>
+objects).
 
-=head2 default_provider
+=head2 Default provider
 
-If only one provider is configured, it is automatically the default one.
-If several providers are configured, the C<default_provider> configuration
-entry must be set for C<< $env->{oidc} >> to be populated ; otherwise, only
-the C<< $env->{"oidc.$provider_name"} >> keys are set.
+If only one provider is configured, it is the default one. Otherwise,
+the C<default_provider> configuration entry is used. If several providers
+are configured and C<default_provider> is not set, C<< $env->{oidc} >>
+is not populated and only the C<< $env->{"oidc.$provider_name"} >> keys
+are available.
 
 =head2 Redirects from application code
 
-Some methods of L<OIDC::Client::Plugin>, namely C<redirect_to_authorize()>
-and C<redirect_to_logout()>, are meant to immediately redirect the
-browser. Because a PSGI application has no mutable response object to
-alter from arbitrary application code, calling one of these methods
-actually throws an internal L<Plack::Middleware::OIDC::Redirect>
-exception. This middleware catches it around the call to the downstream
-application and turns it into a real C<302> PSGI response, so from the
-application's point of view, calling these methods still simply ends the
-request with a redirect, as it does with the other framework plugins.
+Methods like C<redirect_to_authorize()> and C<redirect_to_logout()> of
+L<OIDC::Client::Plugin> are meant to redirect the browser immediately.
+A PSGI application has no mutable response object that application code
+could alter at any point, so these methods throw an internal
+L<Plack::Middleware::OIDC::Redirect> exception instead. The middleware
+catches it around the call to your application and turns it into a real
+C<302> response. From your application's point of view, calling one of
+these methods therefore ends the request with a redirect, as with the
+other plugins.
 
-Note that this means these two methods must not be called from inside a
-C<eval> / C<try> block that would swallow the exception without
-re-throwing it.
+This means these methods must not be called inside an C<eval> or C<try>
+block that would swallow the exception without rethrowing it. See also
+L</LIMITATIONS>.
 
-=head2 Session
+If your application is built on a framework that catches the exceptions
+thrown by your code, the redirection only reaches this middleware if the
+framework rethrows the exceptions implementing an C<as_psgi()> method (a
+convention also used by L<Plack::Middleware::HTTPExceptions>). The exception
+implements it : see L<Plack::Middleware::OIDC::Redirect/as_psgi()>.
 
-This middleware relies on C<< $env->{'psgix.session'} >> for the default
-C<session> storage mode (see C<store_mode> in L<OIDC::Client::Config>), so
-L<Plack::Middleware::Session> (or an equivalent middleware populating this
-key) must be enabled B<before> C<Plack::Middleware::OIDC> :
+=head2 Session and storage modes
+
+By default (C<store_mode> set to C<session>, see L<OIDC::Client::Config>),
+the tokens, the identity and the transient data of the authorization
+flow (state, nonce, PKCE code verifier) are stored in
+C<< $env->{'psgix.session'} >>. A session middleware such as
+L<Plack::Middleware::Session> must therefore be enabled B<before>
+C<Plack::Middleware::OIDC> :
 
   builder {
     enable 'Session';
@@ -157,47 +185,270 @@ key) must be enabled B<before> C<Plack::Middleware::OIDC> :
     $app;
   };
 
-The C<stash> storage mode is also supported ; the stash is a plain hashref
-scoped to the current request (stored in C<< $env->{'oidc.stash'} >>), lost
-once the request ends. This C<stash> storage mode should only be used for
-an API which must validate the token in the C<Authorization> header
-for each request (Resource Server).
+If no session is found, an exception is raised.
 
-=head2 Reverse proxy
+With the C<stash> storage mode, nothing is kept between requests: the
+stash is a hashref scoped to the current request (C<< $env->{'oidc.stash'} >>).
+This is the mode to use for a pure Resource Server (see
+L</"Protecting a web service">), which does not need any session
+middleware.
 
-When running behind a reverse proxy, L<Plack::Middleware::OIDC> expects
-the PSGI environment to describe the public request URL.
+=head2 Behind a reverse proxy
 
-The reverse proxy must therefore configure C<psgi.url_scheme>,
-C<SERVER_NAME> and C<SERVER_PORT> appropriately before the OIDC middleware
-is invoked.
+The URLs given to the provider (C<redirect_uri>, post logout redirect) are
+built from the request itself. If your application runs behind a reverse
+proxy which terminates TLS, enable L<Plack::Middleware::ReverseProxy>
+(or an equivalent) B<before> this middleware so that the scheme and the
+host are the public ones.
 
-L<Plack::Middleware::OIDC> does not interpret X-Forwarded-* headers itself.
+=head2 Authentication errors
 
-Example (the order is important) :
+If an L<OIDC::Client::Error> exception occurs while handling the login
+callback (invalid state, error returned by the provider, token
+verification failure...):
 
-  builder {
-    enable 'ReverseProxy';
-    enable 'Session';
-    enable 'OIDC', config => $oidc_config;
-    $app;
-  };
+=over 2
+
+=item *
+
+if the C<authentication_error_path> configuration entry is set, the
+browser is redirected to this path and the error message is stored in
+the session, so that the error page can display it (see
+L</"Displaying an authentication error">) ;
+
+=item *
+
+otherwise, the exception is rethrown.
+
+=back
+
+The message behaves like a framework's flash : it is readable in
+C<< $env->{'psgix.session'}{oidc_flash}{error_message} >> during the
+request that follows the redirect, and only during that request. The
+middleware removes it automatically, there is nothing to clean up. This
+requires a session, so the message is not available with the C<stash>
+storage mode alone.
 
 =head1 CONFIGURATION
 
 =head2 config
 
-Hashref with the same structure as the configuration used by the other
-framework plugins ; see L<OIDC::Client::Config> for the full reference.
+Hashref with the same structure as the configuration of the other
+framework plugins. See L<OIDC::Client::Config> for the complete
+reference.
 
 =head2 log
 
-Optional logger object, must implement the C<debug>, C<info>, C<error>
-and (C<warning> or C<warn>) methods. Defaults to an instance of
-L<Plack::Middleware::OIDC::Logger>, which writes to C<STDERR> (or to
-C<< $env->{'psgix.logger'} >> when available).
+Optional logger object, which must implement the C<debug>, C<info>,
+C<error> and C<warning> (or C<warn>) methods. Defaults to an instance of
+L<Plack::Middleware::OIDC::Logger>, which writes to
+C<< $env->{'psgix.logger'} >> when available and to C<STDERR> otherwise.
 
-=cut
+=head1 SAMPLES
+
+=head2 Protecting routes
+
+A small inline middleware, placed after C<OIDC>, can require an
+authenticated user for the whole application except some public paths :
+
+  builder {
+    enable 'Session';
+    enable 'OIDC', config => $oidc_config;
+
+    enable sub {
+      my $next = shift;
+      return sub {
+        my $env = shift;
+
+        return $next->($env) if $env->{PATH_INFO} =~ m{^/(?:public|assets)/};
+
+        $env->{oidc}->get_valid_identity()
+          or $env->{oidc}->redirect_to_authorize();
+
+        return $next->($env);
+      };
+    };
+
+    $app;
+  };
+
+Once the user is authenticated and sent back to the originally requested
+URL, the identity is available in any layer of the application :
+
+  my $identity = $env->{oidc}->get_valid_identity();
+  my $login    = $identity->subject;
+  my $email    = $identity->claims->{email};
+
+=head2 Several providers
+
+  my $oidc_config = {
+    default_provider => 'my_provider',
+    provider => {
+      my_provider => {
+        ...
+        signin_redirect_path => '/oidc/login/callback',
+        logout_redirect_path => '/oidc/logout/callback',
+      },
+      my_other_provider => {
+        ...
+        signin_redirect_path => '/oidc/other/login/callback',
+        logout_redirect_path => '/oidc/other/logout/callback',
+      },
+    },
+  };
+
+  # default provider
+  $env->{oidc}->get_valid_identity();
+
+  # explicit provider
+  $env->{'oidc.my_other_provider'}->get_valid_identity();
+
+Each provider needs its own callback paths.
+
+=head2 Logging out
+
+  if ($env->{PATH_INFO} eq '/logout') {
+    $env->{oidc}->redirect_to_logout(target_url => 'https://myapp.example.com/');
+  }
+
+The browser is sent to the provider, then back to the
+C<logout_redirect_path> route handled by the middleware, which removes
+the data stored for the user and redirects to C<target_url> (the base
+URL of the application by default).
+
+=head2 Protecting a web service
+
+For an application acting as an OAuth 2.0 Resource Server, use the
+C<stash> storage mode, so that no session is required, and verify the
+access token received in the C<Authorization> header :
+
+  my $oidc_config = {
+    provider => {
+      my_provider => {
+        id                      => 'my-api-id',
+        secret                  => 'xxxxxxxxx',
+        well_known_url          => 'https://yourprovider.com/.well-known/openid-configuration',
+        store_mode              => 'stash',
+        token_validation_method => 'jwt',
+      },
+    },
+  };
+
+  builder {
+    enable 'OIDC', config => $oidc_config;
+
+    sub {
+      my $env = shift;
+
+      my $access_token = eval { $env->{oidc}->verify_token() };
+      if ($@) {
+        return [401, ['Content-Type'     => 'application/json',
+                      'WWW-Authenticate' => 'Bearer'],
+                     ['{"error":"invalid_token"}']];
+      }
+
+      my @scopes = @{ $access_token->scopes };
+      ...
+    };
+  };
+
+When the C<token_validation_method> is C<jwt>, the provider's signing keys
+are fetched when the application starts.
+
+=head2 Calling another web service
+
+To call another application with the security context of the current
+request, the access token is automatically added to every request made
+with the web client returned by C<build_api_useragent()> :
+
+  my $ua  = $env->{oidc}->build_api_useragent();
+  my $res = $ua->get('https://other-app.example.com/api/things')->result;
+
+See L<OIDC::Client::Plugin/build_api_useragent> for the optional audience
+alias.
+
+=head2 Displaying an authentication error
+
+When C<authentication_error_path> is configured, the error page can
+read the message stored by the middleware. It is only available during
+the request that follows the redirect :
+
+  if ($env->{PATH_INFO} eq '/error') {
+    my $message = $env->{'psgix.session'}{oidc_flash}{error_message}
+                    || 'Unknown error';
+    ...
+  }
+
+=head1 DIFFERENCES WITH THE OTHER FRAMEWORK PLUGINS
+
+=over 2
+
+=item *
+
+The configuration is passed to C<enable> instead of being read from the
+framework's configuration.
+
+=item *
+
+The C<< $c->oidc >> helper becomes C<< $env->{oidc} >> and
+C<< $c->oidc($provider) >> becomes C<< $env->{"oidc.$provider"} >>.
+
+=item *
+
+The callback routes are handled directly by the middleware, there is no
+route to declare.
+
+=item *
+
+Redirections requested by the application are implemented with an
+exception (see L</"Redirects from application code">).
+
+=item *
+
+There is no C<flash> helper : the authentication error message is read
+directly from the session, under the C<oidc_flash> key (see
+L</"Authentication errors">).
+
+=back
+
+=head1 LIMITATIONS
+
+=over 2
+
+=item *
+
+The redirect exception is only caught while the application runs
+synchronously. Calling C<redirect_to_authorize()> or C<redirect_to_logout()>
+from within the callback of a delayed or streaming PSGI response is not
+supported.
+
+=item *
+
+Only the C<signin_redirect_path> and C<logout_redirect_path> entries are
+taken into account for the callback routes, like in the other plugins.
+The C<signin_redirect_uri> and C<post_logout_redirect_uri> entries are
+not supported.
+
+=item *
+
+A session middleware must be enabled before this middleware when the
+C<session> storage mode is used. The exception is raised on every request
+going through the middleware, not only on the OIDC routes.
+
+=item *
+
+The authentication error message is available during the first request
+going through the middleware after the redirect, whichever it is (for
+example a request for a favicon or a parallel request made by the browser
+would use it up).
+
+=back
+
+=head1 SEE ALSO
+
+L<OIDC::Client>, L<OIDC::Client::Plugin>, L<OIDC::Client::Config>,
+L<Mojolicious::Plugin::OIDC>, L<Catalyst::Plugin::OIDC>,
+L<Dancer2::Plugin::OIDC>, L<Plack::Middleware::Session>
 
 =head1 METHODS
 
@@ -272,6 +523,8 @@ sub call {
     $self->{_oidc_log}->set_env($env);
   }
 
+  $self->_rotate_flash($env);
+
   if (my $route = $self->{_oidc_path_map}{ $env->{PATH_INFO} }) {
     return $route->{action} eq 'login' ? $self->_login_callback($env, $route->{provider})
                                        : $self->_logout_callback($env, $route->{provider});
@@ -291,6 +544,27 @@ sub call {
       die $e;
     }
   };
+}
+
+
+# Flash lifecycle, run at the start of every request going through the
+# middleware : the data stored under 'oidc_flash_new' during the previous
+# request becomes readable as 'oidc_flash' for this request only, and any
+# older 'oidc_flash' is dropped.
+sub _rotate_flash {
+  my ($self, $env) = @_;
+
+  my $session = $env->{'psgix.session'}
+    or return;
+
+  if (exists $session->{oidc_flash_new}) {
+    $session->{oidc_flash} = delete $session->{oidc_flash_new};
+  }
+  else {
+    delete $session->{oidc_flash};
+  }
+
+  return;
 }
 
 
@@ -333,7 +607,7 @@ sub _build_plugin_instance {
   my $client = $self->{_oidc_client_by_provider}{$provider_name}
     or croak("OIDC: no client for provider '$provider_name'");
 
-  if ($client->store_mode eq 'session' && !$env->{'psgix.session'}) {
+  if ($client->store_mode ne 'stash' && !$env->{'psgix.session'}) {
     croak("OIDC: no session found in \$env->{'psgix.session'} - "
         . "enable Plack::Middleware::Session (or an equivalent middleware) "
         . "before Plack::Middleware::OIDC");
@@ -387,10 +661,20 @@ sub _extract_request_headers {
 }
 
 
+# Builds a PSGI redirect response. The construction is centralized in
+# Plack::Middleware::OIDC::Redirect::as_psgi(), which is also what makes the
+# exception understood by Plack::Middleware::HTTPExceptions.
+sub _psgi_redirect {
+  my ($self, $url) = @_;
+
+  return Plack::Middleware::OIDC::Redirect->new(url => $url)->as_psgi();
+}
+
+
 sub _response_from_redirect_exception {
   my ($self, $exception) = @_;
 
-  return [302, ['Location' => $exception->url], ['']];
+  return $exception->as_psgi();
 }
 
 
@@ -449,7 +733,7 @@ sub _redirect_response {
 
   my $req = Plack::Request->new($env);
 
-  return [302, ['Location' => $target_url || $req->base->as_string], ['']];
+  return $self->_psgi_redirect($target_url || $req->base->as_string);
 }
 
 
@@ -459,17 +743,17 @@ sub _handle_authentication_error {
   die $e
     unless blessed($e) && $e->isa('OIDC::Client::Error');
 
-  my $e_path = $self->{_oidc_config}{authentication_error_path}
+  my $error_path = $self->{_oidc_config}{authentication_error_path}
     or die $e;
 
-  # equivalent of Mojolicious' flash: kept only for the request following
-  # the redirect, via the 'oidc_flash' session key
-  ($env->{'psgix.session'} ||= {})->{oidc_flash}{error_message} = $e->message;
+  # equivalent of Mojolicious' flash: stored in 'oidc_flash_new', it becomes
+  # readable as 'oidc_flash' during the next request only (see _rotate_flash)
+  ($env->{'psgix.session'} ||= {})->{oidc_flash_new}{error_message} = $e->message;
 
-  my $req   = Plack::Request->new($env);
-  my $e_url = URI->new_abs($e_path, $req->base->as_string)->as_string;
+  my $req       = Plack::Request->new($env);
+  my $error_url = URI->new_abs($error_path, $req->base->as_string)->as_string;
 
-  return [302, ['Location' => $e_url], ['']];
+  return $self->_psgi_redirect($error_url);
 }
 
 

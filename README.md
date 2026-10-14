@@ -1,10 +1,10 @@
 # Plack::Middleware::OIDC
 
-This plugin makes it easy to integrate the OpenID Connect protocol into a PSGI/Plack application.
+OpenID Connect integration for PSGI/Plack applications.
 
-Note that this is an OIDC **client** plugin, not an OpenID Connect provider plugin.
+This middleware lets a PSGI application act as an OpenID Connect Relying Party (user authentication) and as an OAuth 2.0 Resource Server (access token validation). It is built on the [OIDC-Client](https://metacpan.org/dist/OIDC-Client) distribution and is the PSGI/Plack counterpart of [Mojolicious::Plugin::OIDC](https://metacpan.org/pod/Mojolicious::Plugin::OIDC), [Catalyst::Plugin::OIDC](https://metacpan.org/pod/Catalyst::Plugin::OIDC) and [Dancer2::Plugin::OIDC](https://metacpan.org/pod/Dancer2::Plugin::OIDC).
 
-It essentially uses the [OIDC-Client](https://metacpan.org/dist/OIDC-Client) distribution.
+It is meant for applications that do not use one of these frameworks (hand-written PSGI applications, etc...). If you use Mojolicious, Catalyst or Dancer2, prefer the dedicated plugin.
 
 ## Features
 
