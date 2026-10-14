@@ -7,7 +7,7 @@ use 5.020000;
 use ExtUtils::MakeMaker;
 
 my %WriteMakefileArgs = (
-  "ABSTRACT" => "OIDC protocol integration for PSGI/Plack applications",
+  "ABSTRACT" => "OpenID Connect integration for PSGI/Plack applications",
   "AUTHOR" => "S\x{e9}bastien Mourlhou",
   "CONFIGURE_REQUIRES" => {
     "ExtUtils::MakeMaker" => 0
@@ -20,7 +20,12 @@ my %WriteMakefileArgs = (
     "Carp" => 0,
     "Clone" => 0,
     "OIDC::Client" => "1.08",
-    "Plack" => 0,
+    "OIDC::Client::Error" => 0,
+    "OIDC::Client::Plugin" => 0,
+    "Plack::Middleware" => 0,
+    "Plack::Request" => 0,
+    "Plack::Response" => 0,
+    "Plack::Util::Accessor" => 0,
     "Scalar::Util" => 0,
     "Try::Tiny" => 0,
     "URI" => 0
@@ -32,12 +37,15 @@ my %WriteMakefileArgs = (
     "IO::Handle" => 0,
     "IPC::Open3" => 0,
     "JSON::PP" => 0,
+    "OIDC::Client::TokenResponse" => 0,
+    "Plack::Builder" => 0,
     "Plack::Middleware::Session" => 0,
+    "Plack::Test" => 0,
     "Test::MockModule" => "0.177.0",
     "Test::More" => 0,
     "URI::QueryParam" => 0
   },
-  "VERSION" => "0.01",
+  "VERSION" => "1.00",
   "test" => {
     "TESTS" => "t/*.t"
   }
@@ -54,8 +62,16 @@ my %FallbackPrereqs = (
   "IPC::Open3" => 0,
   "JSON::PP" => 0,
   "OIDC::Client" => "1.08",
-  "Plack" => 0,
+  "OIDC::Client::Error" => 0,
+  "OIDC::Client::Plugin" => 0,
+  "OIDC::Client::TokenResponse" => 0,
+  "Plack::Builder" => 0,
+  "Plack::Middleware" => 0,
   "Plack::Middleware::Session" => 0,
+  "Plack::Request" => 0,
+  "Plack::Response" => 0,
+  "Plack::Test" => 0,
+  "Plack::Util::Accessor" => 0,
   "Scalar::Util" => 0,
   "Test::MockModule" => "0.177.0",
   "Test::More" => 0,
