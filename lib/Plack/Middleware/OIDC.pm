@@ -444,12 +444,6 @@ would use it up).
 
 =back
 
-=head1 SEE ALSO
-
-L<OIDC::Client>, L<OIDC::Client::Plugin>, L<OIDC::Client::Config>,
-L<Mojolicious::Plugin::OIDC>, L<Catalyst::Plugin::OIDC>,
-L<Dancer2::Plugin::OIDC>, L<Plack::Middleware::Session>
-
 =head1 METHODS
 
 =head2 prepare_app()
@@ -756,5 +750,42 @@ sub _handle_authentication_error {
   return $self->_psgi_redirect($error_url);
 }
 
+
+=head1 SECURITY RECOMMENDATION
+
+It is highly recommended to configure the framework to store session data,
+including sensitive tokens such as access and refresh tokens, on the backend
+rather than in client-side cookies. Although cookies can be signed and encrypted,
+storing tokens in the client exposes them to potential security threats.
+
+=head1 AUTHOR
+
+Sébastien Mourlhou
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) Sébastien Mourlhou
+
+This program is free software, you can redistribute it and/or modify it under the terms of the Artistic License version 2.0.
+
+=head1 SEE ALSO
+
+=over 2
+
+=item * L<OIDC::Client>
+
+=item * L<OIDC::Client::Plugin>
+
+=item * L<OIDC::Client::Config>
+
+=item * L<Mojolicious::Plugin::OIDC>
+
+=item * L<Catalyst::Plugin::OIDC>
+
+=item * L<Dancer2::Plugin::OIDC>
+
+=back
+
+=cut
 
 1;
