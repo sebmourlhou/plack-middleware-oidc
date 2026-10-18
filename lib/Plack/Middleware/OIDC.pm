@@ -346,7 +346,7 @@ access token received in the C<Authorization> header :
 
       my $access_token = try {
         $env->{oidc}->verify_token();
-      };
+      }
       catch {
         $log->warn("Token validation : $_");
         return;
